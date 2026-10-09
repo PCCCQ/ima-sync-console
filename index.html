@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ima 同步控制台</title>
+<style>
+:root {
+  --bg: #f5f7fa; --card: #ffffff; --border: #e5e8ef;
+  --text: #1f2430; --muted: #7a8299;
+  --primary: #3b82f6; --primary-dark: #2563eb;
+  --green: #16a34a; --red: #dc2626; --amber: #d97706;
+  --radius: 12px; --shadow: 0 1px 3px rgba(16,24,40,.08);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg); color: var(--text); font-size: 14px; }
+.app { max-width: 1040px; margin: 0 auto; padding: 20px 16px 60px; }
+
+header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+header h1 { font-size: 20px; font-weight: 600; }
+header .sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.badge { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 500; }
+.badge.green { background: #dcfce7; color: var(--green); }
+.badge.red { background: #fee2e2; color: var(--red); }
+.badge.gray { background: #eef1f6; color: var(--muted); }
+.badge.amber { background: #fef3c7; color: var(--amber); }
+.badge.blue { background: #dbeafe; color: var(--primary-dark); }
+
+nav { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 4px; margin-bottom: 18px; box-shadow: var(--shadow); }
+nav button { flex: 1; border: 0; background: transparent; padding: 9px 0; border-radius: 8px;
+  font-size: 14px; color: var(--muted); cursor: pointer; font-family: inherit; }
+nav button.active { background: var(--primary); color: #fff; font-weight: 500; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 18px; margin-bottom: 16px; }
+.card h2 { font-size: 15px; font-weight: 600; margin-bottom: 14px; }
+.card h2 .hint { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 8px; }
+.card h2 button { float: right; }
+
+.grid { display: grid; gap: 12px; }
+.grid.c5 { grid-template-columns: repeat(5, 1fr); }
+@media (max-width: 640px) { .grid.c5 { grid-template-columns: repeat(2, 1fr); } }
+.stat { text-align: center; padding: 14px 8px; border-radius: 10px; background: #f8fafc; }
+.stat .num { font-size: 24px; font-weight: 700; }
+.stat .label { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.stat.green .num { color: var(--green); }
+.stat.amber .num { color: var(--amber); }
+.stat.red .num { color: var(--red); }
+
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.field label .tip { color: var(--muted); font-weight: 400; }
+.field input, .field select { width: 100%; padding: 9px 11px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 14px; font-family: inherit; background: #fff; color: var(--text); }
+.field input:focus, .field select:focus { outline: none; border-color: var(--primary); }
+.field .link { font-size: 12px; }
+.field .link a { color: var(--primary); text-decoration: none; }
+.frow { display: flex; gap: 10px; }
+.frow > * { flex: 1; }
+
+.btn { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 8px;
+  padding: 9px 18px; font-size: 14px; font-family: inherit; cursor: pointer;
+  background: var(--primary); color: #fff; font-weight: 500; }
+.btn:hover { background: var(--primary-dark); }
+.btn.secondary { background: #fff; color: var(--text); border: 1px solid var(--border); }
+.btn.secondary:hover { background: #f8fafc; }
+.btn.small { padding: 5px 12px; font-size: 12px; }
+.btn.danger { background: #fff; color: var(--red); border: 1px solid #fecaca; }
+.btn.danger:hover { background: #fef2f2; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+
+.toast { position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%) translateY(20px);
+  background: #111827; color: #fff; padding: 10px 20px; border-radius: 10px;
+  font-size: 13px; opacity: 0; pointer-events: none; transition: all .25s; z-index: 50; max-width: 86vw; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.err { background: var(--red); }
+
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+th { color: var(--muted); font-weight: 500; font-size: 12px; white-space: nowrap; }
+td.wrap { word-break: break-all; }
+tr:last-child td { border-bottom: 0; }
+
+.logbox { background: #0f172a; color: #cbd5e1; font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px; line-height: 1.75; border-radius: 10px; padding: 14px;
+  height: 420px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+.logbox .t { color: #64748b; margin-right: 8px; }
+.logbox .ok { color: #4ade80; }
+.logbox .err { color: #f87171; }
+
+.progress { height: 8px; background: #eef1f6; border-radius: 999px; overflow: hidden; margin: 10px 0 6px; }
+.progress .bar { height: 100%; background: var(--primary); border-radius: 999px; transition: width .4s; }
+.runinfo { font-size: 13px; color: var(--muted); }
+.runinfo b { color: var(--text); }
+.empty { text-align: center; color: var(--muted); padding: 30px 0; font-size: 13px; }
+.muted { color: var(--muted); font-size: 12px; }
+.spin { display: inline-block; width: 14px; height: 14px; border: 2px solid #fff;
+  border-top-color: transparent; border-radius: 50%; animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.hidden { display: none; }
+
+/* 任务卡片 */
+.task-card { border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 12px; background: #fff; }
+.task-card.disabled { opacity: .6; }
+.task-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.task-head .name { font-weight: 600; font-size: 15px; }
+.task-head .dir { color: var(--muted); font-size: 12px; word-break: break-all; flex: 1; }
+.task-meta { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.task-meta b { color: var(--text); }
+.task-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.tbar { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: #eef1f6; margin-top: 10px; }
+.tbar .b-ok { background: var(--green); height: 100%; }
+.tbar .b-pd { background: var(--amber); height: 100%; }
+.tbar .b-fl { background: var(--red); height: 100%; }
+.switch { position: relative; width: 40px; height: 22px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch .sl { position: absolute; inset: 0; background: #cbd5e1; border-radius: 999px; cursor: pointer; transition: .2s; }
+.switch .sl:before { content: ""; position: absolute; width: 18px; height: 18px; left: 2px; top: 2px;
+  background: #fff; border-radius: 50%; transition: .2s; }
+.switch input:checked + .sl { background: var(--green); }
+.switch input:checked + .sl:before { transform: translateX(18px); }
+
+.br-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.br-row:hover { background: #f8fafc; }
+.br-name { cursor: pointer; flex: 1; font-size: 13px; word-break: break-all; }
+.br-name:hover { color: var(--primary); }
+.modal .br-hint { font-size: 12px; color: var(--muted); margin: -8px 0 12px; }
+
+/* 弹层 */
+.modal-mask { position: fixed; inset: 0; background: rgba(15,23,42,.45); z-index: 40;
+  display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 40px 16px; }
+.modal { background: #fff; border-radius: 14px; padding: 22px; width: 560px; max-width: 100%; }
+.modal h3 { font-size: 16px; margin-bottom: 16px; }
+.modal .close-x { float: right; border: 0; background: none; font-size: 18px; cursor: pointer; color: var(--muted); }
+
+/* 查询工具条 */
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; align-items: center; }
+.toolbar input, .toolbar select { padding: 8px 11px; border: 1px solid var(--border);
+  border-radius: 8px; font-size: 13px; font-family: inherit; background: #fff; }
+.toolbar input.q { flex: 1; min-width: 180px; }
+.pager { display: flex; align-items: center; gap: 10px; justify-content: flex-end; margin-top: 12px; font-size: 13px; color: var(--muted); }
+.pager button { padding: 5px 14px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>ima 同步控制台</h1>
+      <div class="sub" id="header-sub">本地文件夹 → 腾讯 ima 知识库</div>
+    </div>
+    <div id="header-status"><span class="badge gray">加载中…</span></div>
+  </header>
+
+  <nav>
+    <button data-tab="dashboard" class="active">仪表盘</button>
+    <button data-tab="config">任务与设置</button>
+    <button data-tab="history">同步记录</button>
+    <button data-tab="logs">运行日志</button>
+  </nav>
+
+  <!-- 仪表盘 -->
+  <section id="tab-dashboard">
+    <div class="grid c5">
+      <div class="stat"><div class="num" id="st-tasks">–</div><div class="label">同步任务</div></div>
+      <div class="stat"><div class="num" id="st-total">–</div><div class="label">文件总数</div></div>
+      <div class="stat green"><div class="num" id="st-synced">–</div><div class="label">已同步</div></div>
+      <div class="stat amber"><div class="num" id="st-pending">–</div><div class="label">待同步</div></div>
+      <div class="stat red"><div class="num" id="st-failed">–</div><div class="label">失败</div></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>运行状态 <span class="hint" id="queue-hint"></span>
+        <button class="btn small secondary" onclick="runAll(0)">全部同步</button>
+        <button class="btn small secondary" onclick="runAll(10)">试传 10 个</button>
+      </h2>
+      <div id="current-run" class="empty">当前没有正在运行的同步任务</div>
+      <div id="current-detail" class="hidden">
+        <div class="runinfo" id="run-text"></div>
+        <div class="progress"><div class="bar" id="run-bar" style="width:0%"></div></div>
+        <div class="muted" id="run-file"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>同步任务 <span class="hint">每个文件夹一个任务，独立时间与目标；内容修改自动重新上传</span>
+        <button class="btn small secondary" onclick="openTaskModal()">＋ 新建任务</button></h2>
+      <div id="task-list"></div>
+    </div>
+
+    <div class="card">
+      <h2>最近一次结果</h2>
+      <div id="last-run" class="empty">还没有同步记录</div>
+    </div>
+  </section>
+
+  <!-- 任务与设置 -->
+  <section id="tab-config" class="hidden">
+    <div class="card">
+      <h2>同步任务 <span class="hint">弹层编辑，立即保存</span>
+        <button class="btn small secondary" onclick="openTaskModal()">＋ 新建任务</button></h2>
+      <div id="cfg-task-list"></div>
+    </div>
+
+    <div class="card">
+      <h2>ima 凭据（全局共用）</h2>
+      <div class="field">
+        <label>Client ID</label>
+        <input id="g-cid" placeholder="在 ima.qq.com/agent-interface 获取">
+        <div class="link">获取入口: <a href="https://ima.qq.com/agent-interface" target="_blank">ima.qq.com/agent-interface</a>（微信扫码 → 创建凭据）</div>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input id="g-key" type="password" placeholder="仅保存在本机 SQLite 数据库">
+      </div>
+      <div class="btn-row" style="margin-bottom:16px">
+        <button class="btn secondary" id="btn-test" onclick="testConn()">测试连接</button>
+        <button class="btn" onclick="saveGlobal()">保存凭据</button>
+      </div>
+      <div class="field">
+        <label>页面访问口令（可选） <span class="tip">— 设置后打开页面和 API 都需要携带</span></label>
+        <input id="g-token" placeholder="留空表示不启用">
+      </div>
+      <div class="btn-row"><button class="btn" onclick="saveGlobal()">保存设置</button></div>
+    </div>
+
+    <div class="card">
+      <h2>说明</h2>
+      <div class="muted" style="line-height:2">
+        · 全部数据（配置/任务/文件状态/同步记录）存放在脚本目录的 SQLite 数据库 ima_sync.db<br>
+        · 支持类型：PDF / Word / PPT / Excel / Markdown / 图片 / TXT / Xmind / 录音 / HTML / EPUB<br>
+        · 增量同步：新文件自动上传；文件内容变化（sha256 不同）自动重新上传新版本；仅时间戳变化不会重复上传<br>
+        · 「试传 10 个」会真实上传每个任务的前 10 个待传文件，用于小批量验证；剩余文件等下次「立即同步」继续<br>
+        · ima 中已有同名文件且本地是新文件时自动跳过；单文件上限：文档/录音 200MB、图片 30MB、文本类 10MB、EPUB 50MB<br>
+        · 任务串行执行（间隔 1 秒）避免频控；API Key 明文存本机数据库，请勿外传
+      </div>
+    </div>
+  </section>
+
+  <!-- 同步记录 -->
+  <section id="tab-history" class="hidden">
+    <div class="card">
+      <h2>任务历史 <span class="hint">保留最近 500 条</span></h2>
+      <div class="toolbar">
+        <select id="runs-page-size" onchange="loadRuns(1)">
+          <option value="20">20 条/页</option>
+          <option value="50" selected>50 条/页</option>
+          <option value="100">100 条/页</option>
+        </select>
+      </div>
+      <div id="runs-list"></div>
+      <div class="pager" id="runs-pager"></div>
+    </div>
+    <div class="card">
+      <h2>文件记录 <span class="hint">全量持久保存，支持搜索</span></h2>
+      <div class="toolbar">
+        <input class="q" id="files-q" placeholder="搜索文件路径 / media_id…" onkeydown="if(event.key==='Enter')loadFiles(1)">
+        <select id="files-task" onchange="loadFiles(1)"><option value="">全部任务</option></select>
+        <select id="files-status" onchange="loadFiles(1)">
+          <option value="">全部状态</option>
+          <option value="synced">已同步</option>
+          <option value="pending">待同步</option>
+          <option value="skipped">已跳过(同名)</option>
+          <option value="failed">失败</option>
+        </select>
+        <button class="btn" onclick="loadFiles(1)">搜索</button>
+      </div>
+      <div id="files-list"></div>
+      <div class="pager" id="files-pager"></div>
+    </div>
+  </section>
+
+  <!-- 日志 -->
+  <section id="tab-logs" class="hidden">
+    <div class="card">
+      <h2>运行日志 <span class="hint">最近 500 条，服务重启后清空</span>
+        <button class="btn secondary small" style="float:right" onclick="fetchLogs()">刷新</button></h2>
+      <div class="logbox" id="logbox">暂无日志</div>
+    </div>
+  </section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let TOKEN = localStorage.getItem('ima_token') || '';
+let pollTimer = null;
+let filesPage = 1, filesTotal = 0;
+let runsPage = 1, runsTotal = 0;
+
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (TOKEN) headers['X-Access-Token'] = TOKEN;
+  const res = await fetch(path, { headers, ...opts });
+  if (res.status === 401) {
+    const t = prompt('本页面已设置访问口令，请输入：');
+    if (t !== null) { TOKEN = t; localStorage.setItem('ima_token', t); return api(path, opts); }
+    throw new Error('需要访问口令');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+function toast(msg, isErr = false) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isErr ? ' err' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = 'toast', 2600);
+}
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+const STATUS_LABEL = { synced: '已同步', pending: '待同步', skipped: '同名跳过', failed: '失败' };
+const STATUS_BADGE = { synced: 'green', pending: 'amber', skipped: 'gray', failed: 'red' };
+
+// ---------- 页签 ----------
+document.querySelectorAll('nav button').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['dashboard','config','history','logs'].forEach(t =>
+      document.getElementById('tab-' + t).classList.toggle('hidden', t !== btn.dataset.tab));
+    if (btn.dataset.tab === 'logs') fetchLogs();
+    if (btn.dataset.tab === 'history') { loadRuns(1); loadFiles(1); }
+    if (btn.dataset.tab === 'config') loadConfigIntoForm();
+  };
+});
+
+// ---------- 仪表盘 ----------
+async function refreshStatus(silent = true) {
+  try {
+    const s = await api('/api/status');
+    document.getElementById('st-tasks').textContent =
+      s.tasks.filter(t => t.enabled).length + ' / ' + s.tasks.length;
+    document.getElementById('st-total').textContent = s.totals.total;
+    document.getElementById('st-synced').textContent = s.totals.synced;
+    document.getElementById('st-pending').textContent = s.totals.pending;
+    document.getElementById('st-failed').textContent = s.totals.failed;
+
+    const hs = document.getElementById('header-status');
+    if (s.running) hs.innerHTML = '<span class="badge amber">同步中</span>';
+    else if (!s.config_ready) hs.innerHTML = '<span class="badge gray">未配置凭据</span>';
+    else if (!s.tasks.length) hs.innerHTML = '<span class="badge gray">没有任务</span>';
+    else hs.innerHTML = '<span class="badge green">就绪</span>';
+    document.getElementById('header-sub').textContent =
+      s.tasks.length ? `${s.tasks.length} 个任务 · ` + s.tasks.map(t => t.name).join(' / ') : '本地文件夹 → 腾讯 ima 知识库';
+
+    const cur = document.getElementById('current-run'), det = document.getElementById('current-detail');
+    if (s.running && s.current) {
+      cur.classList.add('hidden'); det.classList.remove('hidden');
+      const c = s.current;
+      const pct = c.total ? Math.round(c.done / c.total * 100) : 0;
+      document.getElementById('run-text').innerHTML =
+        `<b>${esc(c.task_name)}</b> · ${c.trigger === 'schedule' ? '定时' : '手动'}${c.limit > 0 ? `（限流 ${c.limit} 个）` : ''} · 开始 ${esc(c.start_time || '')} · ${c.done}/${c.total} · 成功 ${c.ok} 跳过 ${c.skipped || 0} 失败 ${c.fail}`;
+      document.getElementById('run-bar').style.width = pct + '%';
+      document.getElementById('run-file').textContent = c.current_file ? '正在处理: ' + c.current_file : '';
+    } else {
+      det.classList.add('hidden'); cur.classList.remove('hidden');
+    }
+
+    const tl = document.getElementById('task-list');
+    tl.innerHTML = s.tasks.length ? s.tasks.map(taskCard).join('') :
+      '<div class="empty">还没有任务，点右上角「＋ 新建任务」添加第一个文件夹</div>';
+
+    const last = s.last_run;
+    const lr = document.getElementById('last-run');
+    if (last) {
+      const badge = last.status === 'done' ? '<span class="badge green">完成</span>'
+        : last.status === 'error' ? '<span class="badge red">异常</span>'
+        : '<span class="badge amber">停止</span>';
+      lr.className = ''; lr.innerHTML =
+        `<div class="runinfo">${badge} <b>${esc(last.task_name)}</b> · ${esc(last.message || '')}<br>
+         <span class="muted">${esc(last.start_time)} 开始 · ${esc(last.end_time || '')} 结束 · ${last.trigger === 'schedule' ? '定时' : '手动'}${last.dry ? ' · 试运行' : ''}</span></div>`;
+    }
+  } catch (e) { if (!silent) toast(e.message, true); }
+}
+
+function taskCard(t) {
+  const st = t.stats;
+  const total = st.total || 0;
+  const w = n => total ? Math.round(n / total * 100) : 0;
+  return `<div class="task-card ${t.enabled ? '' : 'disabled'}">
+    <div class="task-head">
+      <label class="switch"><input type="checkbox" ${t.enabled ? 'checked' : ''}
+        onchange="toggleTask(${t.id}, this.checked)" title="启用/停用"><span class="sl"></span></label>
+      <span class="name">${esc(t.name)}</span>
+      <span class="dir">${esc(t.sync_dir)}</span>
+      ${t.enabled ? '' : '<span class="badge gray">已停用</span>'}
+    </div>
+    <div class="tbar"><div class="b-ok" style="width:${w(st.synced)}%"></div><div class="b-pd" style="width:${w(st.pending)}%"></div><div class="b-fl" style="width:${w(st.failed)}%"></div></div>
+    <div class="task-meta">
+      <span>文件 <b>${total}</b>（同步 <b>${st.synced}</b> / 待 <b>${st.pending}</b> / 失败 <b>${st.failed}</b>）</span>
+      <span>目标 <b>${esc(t.kb_name || '未设置')}</b></span>
+      <span>时间 <b>${esc(t.sync_time)}</b>${t.next_run ? ' · 下次 ' + esc(t.next_run) : ''}</span>
+      <span>类型 <b>${t.ext ? esc(t.ext) : '全部'}</b></span>
+    </div>
+    <div class="task-acts">
+      <button class="btn small" onclick="runOne(${t.id})">立即同步</button>
+      <button class="btn small secondary" onclick="runOne(${t.id}, 10)">试传 10 个</button>
+      <button class="btn small secondary" onclick="openTaskModal(${t.id})">编辑</button>
+    </div>
+  </div>`;
+}
+
+// ---------- 同步动作 ----------
+async function runAll(limit) {
+  if (limit > 0 && !confirm(`将真实上传每个任务的前 ${limit} 个待传文件，确定？`)) return;
+  try {
+    const r = await api('/api/sync/run', { method: 'POST', body: JSON.stringify({ dry: false, limit }) });
+    r.ok ? toast(limit > 0 ? `限流试传已开始（每任务前 ${limit} 个）` : '同步已开始') : toast(r.message, true);
+    refreshStatus();
+  } catch (e) { toast(e.message, true); }
+}
+async function runOne(id, limit = 0) {
+  if (limit > 0 && !confirm(`将真实上传该任务的前 ${limit} 个待传文件，确定？`)) return;
+  try {
+    const r = await api('/api/sync/run', { method: 'POST', body: JSON.stringify({ dry: false, limit, tasks: [id] }) });
+    r.ok ? toast(limit > 0 ? `限流试传已开始（前 ${limit} 个）` : '任务已开始') : toast(r.message, true);
+    refreshStatus();
+  } catch (e) { toast(e.message, true); }
+}
+async function toggleTask(id, enabled) {
+  try {
+    await api('/api/tasks/toggle', { method: 'POST', body: JSON.stringify({ id }) });
+    toast('已' + (enabled ? '启用' : '停用'));
+    refreshStatus();
+  } catch (e) { toast(e.message, true); refreshStatus(); }
+}
+
+// ---------- 任务编辑弹层 ----------
+async function openTaskModal(taskId) {
+  try {
+    const isNew = taskId === undefined || taskId === null;
+    let task = { name: '', sync_dir: '', kb_id: '', kb_name: '', folder_id: '', folder_name: '', sync_time: '00:30', ext: '', enabled: true };
+    if (!isNew) {
+      const cfg = await api('/api/config');
+      const found = (cfg.tasks || []).find(t => t.id === taskId);
+      if (found) task = found;
+    }
+    renderTaskModal(task, isNew, taskId);
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderTaskModal(task, isNew, taskId) {
+  const old = document.getElementById('task-modal');
+  if (old) old.remove();
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.id = 'task-modal';
+  mask.onclick = e => { if (e.target === mask) mask.remove(); };
+  mask.innerHTML = `<div class="modal">
+    <button class="close-x" onclick="document.getElementById('task-modal').remove()">✕</button>
+    <h3>${isNew ? '新建同步任务' : '编辑任务'}</h3>
+    <div class="field"><label>任务名称</label><input id="m-name" value="${esc(task.name)}" placeholder="如 会议录音"></div>
+    <div class="field"><label>本地文件夹路径</label>
+      <div class="frow">
+        <input id="m-dir" value="${esc(task.sync_dir)}" placeholder="/vol1/我的录音 或点右侧浏览选择">
+        <button class="btn secondary" style="flex:none" onclick="openBrowse()">📁 浏览</button>
+      </div></div>
+    <div class="frow">
+      <div class="field"><label>每日同步时间</label><input id="m-time" value="${esc(task.sync_time)}" placeholder="00:30"></div>
+      <div class="field"><label>扩展名过滤 <span class="tip">空=全部</span></label>
+        <input id="m-ext" value="${esc(task.ext)}" placeholder="如 mp3,pdf"></div>
+    </div>
+    <div class="field"><label>目标知识库</label>
+      <div class="frow">
+        <select id="m-kb"><option value="">— 未选择 —</option></select>
+        <button class="btn secondary" style="flex:none" onclick="loadKbs()">拉取</button>
+      </div></div>
+    <div class="field"><label>目标文件夹（可选）</label>
+      <div class="frow">
+        <select id="m-folder"><option value="">— 根目录 —</option></select>
+        <button class="btn secondary" style="flex:none" onclick="loadFolders()">刷新</button>
+      </div></div>
+    <div class="btn-row">
+      <button class="btn" onclick="saveTask(${isNew ? 'null' : taskId})">确定</button>
+      ${isNew ? '' : '<button class="btn danger" onclick="deleteTask(' + taskId + ')">删除任务</button>'}
+    </div>
+  </div>`;
+  const kbSel = mask.querySelector('#m-kb'), fSel = mask.querySelector('#m-folder');
+  if (task.kb_id) kbSel.innerHTML = `<option value="${esc(task.kb_id)}">${esc(task.kb_name || task.kb_id)}</option>`;
+  if (task.folder_id) fSel.innerHTML = `<option value="${esc(task.folder_id)}">${esc(task.folder_name || task.folder_id)}</option>`;
+  document.body.appendChild(mask);
+}
+
+// ---------- 文件夹可视化选择 ----------
+let browseCurrent = '/';
+
+async function openBrowse() {
+  const start = document.getElementById('m-dir')?.value?.trim() || '/';
+  const old = document.getElementById('browse-modal');
+  if (old) old.remove();
+  const mask = document.createElement('div');
+  mask.className = 'modal-mask';
+  mask.id = 'browse-modal';
+  mask.onclick = e => { if (e.target === mask) mask.remove(); };
+  mask.innerHTML = `<div class="modal" style="width:520px">
+    <button class="close-x" onclick="document.getElementById('browse-modal').remove()">✕</button>
+    <h3>选择文件夹</h3>
+    <div class="runinfo" style="margin-bottom:10px">当前: <b id="br-cur" style="word-break:break-all"></b></div>
+    <div class="btn-row" style="margin:0 0 10px">
+      <button class="btn small secondary" id="br-up" onclick="browseGo('__parent__')">⬆ 上一级</button>
+      <button class="btn small secondary" onclick="browseGo('/')">⌂ 根目录</button>
+    </div>
+    <div id="br-list" style="min-height:200px;max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px"></div>
+    <div class="br-hint" style="margin-top:8px">点名字进入子文件夹；点「选这个」把该文件夹填入任务路径。</div>
+  </div>`;
+  document.body.appendChild(mask);
+  browseGo(start, true);
+}
+
+async function browseGo(path) {
+  const list = document.getElementById('br-list');
+  if (!list) return;
+  try {
+    let p = path;
+    if (p === '__parent__') {
+      // 去掉末级目录: /a/b/ -> /a/ ; Windows: C:\a\b -> C:\a ; 盘根/系统根则保持
+      const cur = browseCurrent;
+      const winDrive = cur.match(/^([A-Za-z]:\\)/);
+      if (winDrive && cur !== winDrive[1]) {
+        const rest = cur.slice(winDrive[1].length).replace(/[\\/]+$/, '');
+        const idx = Math.max(rest.lastIndexOf('\\'), rest.lastIndexOf('/'));
+        p = idx < 0 ? winDrive[1] : winDrive[1] + rest.slice(0, idx + 1);
+      } else if (!winDrive) {
+        const trimmed = cur.replace(/\/+$/, '');
+        p = trimmed === '' ? '/' : trimmed.slice(0, trimmed.lastIndexOf('/')) || '/';
+      } else {
+        p = cur;
+      }
+    }
+    const r = await api('/api/browse?path=' + encodeURIComponent(p));
+    if (!r.ok) { toast(r.error || '读取失败', true); return; }
+    browseCurrent = r.current;
+    document.getElementById('br-cur').textContent = r.current;
+    document.getElementById('br-up').disabled = !r.parent;
+    if (!r.dirs.length) {
+      list.innerHTML = '<div class="empty">此目录下没有子文件夹</div>';
+      return;
+    }
+    list.innerHTML = r.dirs.map(d => {
+      const full = browseCurrent === '/' ? '/' + d
+        : browseCurrent.replace(/[\\/]+$/, '') + (browseCurrent.match(/^[A-Za-z]:\\/) ? '\\' : '/') + d;
+      // data-path 存原始路径, 事件用 addEventListener 绑定, 避免内联 onclick 的引号转义问题
+      return `<div class="br-row">
+        <span class="br-name">📁 ${esc(d)}</span>
+        <button class="btn small secondary">选这个</button>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.br-row').forEach((row, i) => {
+      const full = buildPath(r.current, r.dirs[i]);
+      row.querySelector('.br-name').addEventListener('click', () => browseGo(full));
+      row.querySelector('button').addEventListener('click', () => pickFolder(full));
+    });
+  } catch (e) { toast(e.message, true); }
+}
+
+function buildPath(current, name) {
+  if (current === '/') return '/' + name;
+  const sep = current.match(/^[A-Za-z]:\\/) ? '\\' : '/';
+  return current.replace(/[\\/]+$/, '') + sep + name;
+}
+
+function pickFolder(full) {
+  const chosen = full || browseCurrent;
+  if (!chosen) return;
+  document.getElementById('browse-modal')?.remove();
+  const input = document.getElementById('m-dir');
+  if (input) {
+    input.value = chosen;
+    toast('已选择: ' + chosen);
+  }
+}
+
+async function saveTask(taskId) {  const get = id => document.getElementById(id)?.value?.trim() ?? '';
+  const selText = id => {
+    const el = document.getElementById(id);
+    return el && el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].textContent : '';
+  };
+  const body = {
+    name: get('m-name'), sync_dir: get('m-dir'), sync_time: get('m-time'),
+    ext: get('m-ext'),
+    kb_id: get('m-kb'), kb_name: selText('m-kb') === '— 未选择 —' ? '' : selText('m-kb'),
+    folder_id: get('m-folder'), folder_name: selText('m-folder') === '— 根目录 —' ? '' : selText('m-folder'),
+  };
+  if (!body.sync_dir) return toast('文件夹路径不能为空', true);
+  try {
+    if (taskId === null || taskId === undefined) {
+      await api('/api/tasks/add', { method: 'POST', body: JSON.stringify(body) });
+    } else {
+      await api('/api/tasks/update', { method: 'POST', body: JSON.stringify({ id: taskId, ...body }) });
+    }
+    document.getElementById('task-modal')?.remove();
+    toast('已保存');
+    refreshStatus();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteTask(taskId) {
+  if (!confirm('确定删除该任务？已上传到 ima 的文件不受影响。')) return;
+  try {
+    await api('/api/tasks/delete', { method: 'POST', body: JSON.stringify({ id: taskId }) });
+    document.getElementById('task-modal')?.remove();
+    toast('已删除');
+    refreshStatus();
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------- 全局设置 ----------
+async function loadConfigIntoForm() {
+  try {
+    const c = await api('/api/config');
+    document.getElementById('g-cid').value = c.client_id || '';
+    document.getElementById('g-key').value = c.api_key || '';
+    document.getElementById('g-token').placeholder = c.access_token ? '已设置（留空保持不变）' : '留空表示不启用';
+    renderCfgTasks(c.tasks || []);
+  } catch (e) { /* 静默 */ }
+}
+
+function renderCfgTasks(tasks) {
+  const el = document.getElementById('cfg-task-list');
+  if (!el) return;
+  el.innerHTML = tasks.length ? tasks.map(t => `
+    <div class="task-card ${t.enabled ? '' : 'disabled'}">
+      <div class="task-head">
+        <span class="name">${esc(t.name)}</span>
+        <span class="dir">${esc(t.sync_dir)}</span>
+      </div>
+      <div class="task-meta">
+        <span>目标 <b>${esc(t.kb_name || t.kb_id || '未设置')}</b></span>
+        <span>时间 <b>${esc(t.sync_time)}</b></span>
+        <span>类型 <b>${t.ext ? esc(t.ext) : '全部'}</b></span>
+        <span>${t.enabled ? '<span class="badge green">启用</span>' : '<span class="badge gray">停用</span>'}</span>
+      </div>
+      <div class="task-acts">
+        <button class="btn small secondary" onclick="openTaskModal(${t.id})">编辑</button>
+        <button class="btn small danger" onclick="deleteTask(${t.id})">删除</button>
+      </div>
+    </div>`).join('') : '<div class="empty">还没有任务</div>';
+}
+
+async function saveGlobal() {
+  try {
+    const body = {
+      client_id: document.getElementById('g-cid').value.trim(),
+      api_key: document.getElementById('g-key').value.trim(),
+    };
+    const tok = document.getElementById('g-token').value.trim();
+    if (tok) body.access_token = tok;
+    await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
+    toast('配置已保存');
+    refreshStatus();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function testConn() {
+  const btn = document.getElementById('btn-test');
+  btn.disabled = true; btn.textContent = '连接中…';
+  try {
+    const r = await api('/api/ima/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        client_id: document.getElementById('g-cid').value,
+        api_key: document.getElementById('g-key').value,
+      }),
+    });
+    window._KB_LIST = r.knowledge_bases;
+    toast(`连接成功，找到 ${r.knowledge_bases.length} 个知识库（任务弹层里点「拉取」选择）`);
+  } catch (e) { toast('连接失败: ' + e.message, true); }
+  btn.disabled = false; btn.textContent = '测试连接';
+}
+
+async function loadKbs() {
+  try {
+    let list = window._KB_LIST;
+    if (!list) {
+      const r = await api('/api/ima/test', { method: 'POST', body: JSON.stringify({}) });
+      list = window._KB_LIST = r.knowledge_bases;
+    }
+    const sel = document.getElementById('m-kb');
+    sel.innerHTML = '<option value="">— 未选择 —</option>' +
+      list.map(k => `<option value="${esc(k.id)}">${esc(k.name)}</option>`).join('');
+    toast(`已拉取 ${list.length} 个知识库`);
+  } catch (e) { toast('拉取失败: ' + e.message, true); }
+}
+
+async function loadFolders() {
+  try {
+    const r = await api('/api/ima/folders', {
+      method: 'POST',
+      body: JSON.stringify({
+        client_id: document.getElementById('g-cid').value,
+        api_key: document.getElementById('g-key').value,
+        kb_id: document.getElementById('m-kb').value,
+      }),
+    });
+    const sel = document.getElementById('m-folder');
+    sel.innerHTML = '<option value="">— 根目录 —</option>' +
+      r.folders.map(f => `<option value="${esc(f.folder_id)}">${esc(f.name)} (${f.file_number})</option>`).join('');
+    toast(`找到 ${r.folders.length} 个文件夹`);
+  } catch (e) { toast('获取失败: ' + e.message, true); }
+}
+
+// ---------- 同步记录: 任务历史 ----------
+async function loadRuns(page) {
+  runsPage = page || 1;
+  try {
+    const size = document.getElementById('runs-page-size').value;
+    const h = await api(`/api/runs?page=${runsPage}&page_size=${size}`);
+    runsTotal = h.total;
+    const el = document.getElementById('runs-list');
+    el.innerHTML = h.runs.length
+      ? '<table><thead><tr><th>时间</th><th>任务</th><th>触发</th><th>结果</th><th>成功</th><th>跳过</th><th>失败</th><th>说明</th></tr></thead><tbody>' +
+        h.runs.map(r => `<tr>
+          <td style="white-space:nowrap">${esc(r.start_time)}</td>
+          <td>${esc(r.task_name || '')}</td>
+          <td>${r.trigger === 'schedule' ? '定时' : '手动'}${r.dry ? ' · 试运行' : (r.message || '').startsWith('限流试传') ? ' · 试传' : ''}</td>
+          <td>${r.status === 'running' ? '<span class="badge amber">运行中</span>' : r.status === 'done' ? '<span class="badge green">完成</span>' : '<span class="badge red">异常</span>'}</td>
+          <td>${r.ok}</td><td>${r.skipped}</td><td>${r.fail ? `<span style="color:var(--red)">${r.fail}</span>` : 0}</td>
+          <td class="wrap">${esc(r.message || '')}</td></tr>`).join('') + '</tbody></table>'
+      : '<div class="empty">暂无任务记录</div>';
+    renderPager('runs-pager', runsPage, h.total, Number(size), n => loadRuns(n));
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------- 同步记录: 文件记录(搜索/筛选/分页) ----------
+async function loadFiles(page) {
+  filesPage = page || 1;
+  try {
+    const q = document.getElementById('files-q').value.trim();
+    const task = document.getElementById('files-task').value;
+    const status = document.getElementById('files-status').value;
+    const params = new URLSearchParams({ page: filesPage, page_size: 50 });
+    if (q) params.set('q', q);
+    if (task) params.set('task_id', task);
+    if (status) params.set('status', status);
+    const h = await api('/api/files?' + params.toString());
+    filesTotal = h.total;
+    const el = document.getElementById('files-list');
+    el.innerHTML = h.files.length
+      ? '<table><thead><tr><th>更新时间</th><th>任务</th><th>文件</th><th>大小</th><th>状态</th><th>media_id</th><th>详情</th></tr></thead><tbody>' +
+        h.files.map(f => `<tr>
+          <td style="white-space:nowrap">${esc(fmtTime(f.updated_at))}</td>
+          <td>${esc(f.task_name || '')}</td>
+          <td class="wrap">${esc(f.rel_path)}</td>
+          <td>${fmtSize(f.size)}</td>
+          <td><span class="badge ${STATUS_BADGE[f.status] || 'gray'}">${STATUS_LABEL[f.status] || esc(f.status)}</span></td>
+          <td class="wrap muted" style="max-width:180px;overflow:hidden;text-overflow:ellipsis">${esc(f.media_id || '—')}</td>
+          <td class="wrap">${esc(f.detail || '')}</td></tr>`).join('') + '</tbody></table>'
+      : '<div class="empty">没有匹配的记录</div>';
+    renderPager('files-pager', filesPage, h.total, 50, n => loadFiles(n));
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderPager(id, page, total, size, go) {
+  const pages = Math.max(Math.ceil(total / size), 1);
+  const el = document.getElementById(id);
+  el.innerHTML = `共 ${total} 条 · ${pages} 页
+    <button class="btn secondary small" ${page <= 1 ? 'disabled' : ''} onclick="(${go.toString()})(${page - 1})">上一页</button>
+    <span>${page} / ${pages}</span>
+    <button class="btn secondary small" ${page >= pages ? 'disabled' : ''} onclick="(${go.toString()})(${page + 1})">下一页</button>`;
+}
+
+function fmtTime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  const p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+function fmtSize(n) {
+  if (n == null) return '—';
+  if (n < 1024) return n + ' B';
+  if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1048576).toFixed(1) + ' MB';
+}
+
+async function fillTaskFilter() {
+  try {
+    const s = await api('/api/status');
+    const sel = document.getElementById('files-task');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">全部任务</option>' +
+      s.tasks.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+    if (cur) sel.value = cur;
+  } catch (e) { /* 静默 */ }
+}
+
+// ---------- 日志 ----------
+async function fetchLogs() {
+  try {
+    const r = await api('/api/logs');
+    const box = document.getElementById('logbox');
+    box.innerHTML = r.logs.length
+      ? r.logs.map(l => {
+          const cls = /失败|异常|错误/.test(l.m) ? 'err' : /成功|完成|启动|开始/.test(l.m) ? 'ok' : '';
+          return `<div><span class="t">${esc(fmtTime(l.t))}</span><span class="${cls}">${esc(l.m)}</span></div>`;
+        }).join('')
+      : '暂无日志';
+    box.scrollTop = box.scrollHeight;
+  } catch (e) { toast(e.message, true); }
+}
+
+// ---------- 启动 ----------
+(async function init() {
+  refreshStatus(false).catch(() => {});
+  fillTaskFilter();
+  clearInterval(pollTimer);
+  pollTimer = setInterval(() => refreshStatus(true), 4000);
+})();
+</script>
+</body>
+</html>

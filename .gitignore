@@ -1,0 +1,21 @@
+# 运行时数据与本地环境(不入库)
+ima_sync.db
+ima_sync.db-shm
+ima_sync.db-wal
+*.db-journal
+web_config.json
+sync_history.json
+*.migrated
+
+# 部署/调试临时脚本(含主机信息)
+_ssh.py
+_deploy*.py
+_debug*.py
+
+# Python
+__pycache__/
+*.pyc
+
+# ZCode 本地
+.zcode/
+.zcodeignore
