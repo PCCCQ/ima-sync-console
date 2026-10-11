@@ -71,8 +71,7 @@ def db():
 def init_db():
     with DB_LOCK:
         conn = db()
-        conn.executescript("""
-CREATE TABLE IF NOT EXISTS config (
+        conn.executescript("""CREATE TABLE IF NOT EXISTS config (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL DEFAULT ''
 );
@@ -127,6 +126,9 @@ CREATE TABLE IF NOT EXISTS runs (
 );
 CREATE INDEX IF NOT EXISTS idx_runs_task ON runs(task_id);
 """)
+        # 历史遗留: 旧版试运行曾把待传文件预写为 pending, 这些记录与真实文件状态
+        # 无关(真实待传以磁盘扫描为准), 启动时清掉避免统计虚高
+        conn.execute("DELETE FROM files WHERE status='pending'")
         conn.commit()
         conn.close()
     _migrate_json_if_any()
@@ -531,16 +533,15 @@ class SyncManager:
         for path, rel, size, mtime, sha in todo:
             cur["current_file"] = rel
             name = os.path.basename(path)
-            if name in repeated:
+            if dry:
+                # 试运行只统计, 不写库(避免残留 pending 干扰统计)
+                ok += 1
+                log("「%s」[试运行] 将上传: %s" % (task["name"], rel))
+            elif name in repeated:
                 upsert_file(task["id"], rel, size=size, mtime=mtime, sha256=sha,
                             status="skipped", detail="ima 中已存在同名文件")
                 skipped += 1
                 log("「%s」跳过(ima中已存在同名): %s" % (task["name"], rel))
-            elif dry:
-                upsert_file(task["id"], rel, size=size, mtime=mtime, sha256=sha,
-                            status="pending", detail="[试运行] 将上传")
-                ok += 1
-                log("「%s」[试运行] 将上传: %s" % (task["name"], rel))
             else:
                 try:
                     media_id = ima_sync.upload_one(path, kb_id, folder_id, client_id, api_key)
@@ -559,11 +560,11 @@ class SyncManager:
             cur["skipped"] = skipped
             time.sleep(1)
 
-        if dry:
-            msg = "试运行: 待上传 %d 个" % len(todo)
-        elif limit > 0:
+        if limit > 0 and not dry:
             msg = "限流试传: 成功 %d, 跳过 %d, 失败 %d（已传前 %d 个%s）" % (
                 ok, skipped, fail, limit, "，其余 %d 个待下次同步" % truncated if truncated else "")
+        elif dry:
+            msg = "试运行: 待上传 %d 个" % len(todo)
         else:
             msg = "成功 %d, 跳过 %d, 失败 %d" % (ok, skipped, fail)
         finish_run(run_id, len(todo), ok, fail, skipped, "done", msg)
