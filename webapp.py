@@ -515,6 +515,9 @@ class SyncManager:
             return
 
         # 远端查重: 本地"新文件"(库里没记录)才查; 已同步过的文件内容变化需要重传
+        # (ima OpenAPI 的 create_folder 只能在知识库根目录建文件夹且全局同名查重,
+        #  无法还原多级目录; 故子目录层级用"显示名路径前缀"体现, 文件本体全部在根目录。
+        #  查重键用 带路径显示名: 不同子目录下的同名文件互不冲突)
         repeated = set()
         if not dry:
             try:
@@ -524,7 +527,11 @@ class SyncManager:
                     prev = rows.get(rel)
                     if not prev or not prev.get("media_id"):
                         if info:
-                            items.append({"name": os.path.basename(path), "media_type": info[0]})
+                            rel_dir = os.path.dirname(rel)
+                            prefix = "/".join(p for p in rel_dir.split("/") if p)
+                            display = ("/".join([prefix, os.path.basename(path)])
+                                       if prefix else os.path.basename(path))
+                            items.append({"name": display, "media_type": info[0]})
                 repeated = ima_sync.check_repeated(items, kb_id, folder_id, client_id, api_key)
             except RuntimeError as e:
                 log("「%s」检查重名失败(继续尝试上传): %s" % (task["name"], e))
@@ -533,18 +540,25 @@ class SyncManager:
         for path, rel, size, mtime, sha in todo:
             cur["current_file"] = rel
             name = os.path.basename(path)
+            rel_dir = os.path.dirname(rel)
+            prefix = "/".join(p for p in rel_dir.split("/") if p)
+            display = ("/".join([prefix, name]) if prefix else name)
             if dry:
                 # 试运行只统计, 不写库(避免残留 pending 干扰统计)
                 ok += 1
                 log("「%s」[试运行] 将上传: %s" % (task["name"], rel))
-            elif name in repeated:
+            elif display in repeated:
                 upsert_file(task["id"], rel, size=size, mtime=mtime, sha256=sha,
                             status="skipped", detail="ima 中已存在同名文件")
                 skipped += 1
                 log("「%s」跳过(ima中已存在同名): %s" % (task["name"], rel))
             else:
+                # 子目录层级 -> 标题前缀(2023/01/文件名), 根目录文件保持原文件名
+                rel_dir = os.path.dirname(rel)
+                title_prefix = "/".join(p for p in rel_dir.split("/") if p)
                 try:
-                    media_id = ima_sync.upload_one(path, kb_id, folder_id, client_id, api_key)
+                    media_id = ima_sync.upload_one(path, kb_id, folder_id, client_id, api_key,
+                                                   title_prefix=title_prefix)
                     upsert_file(task["id"], rel, size=size, mtime=mtime, sha256=sha,
                                 media_id=media_id, status="synced", detail="上传成功")
                     ok += 1

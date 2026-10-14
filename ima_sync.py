@@ -230,11 +230,12 @@ def file_hash(path, chunk_size=1024 * 1024):
 
 
 def check_repeated(items, kb_id, folder_id, client_id, api_key):
-    """items: [{"name": 文件名, "media_type": 类型}]。返回重复文件名集合。"""
+    """items: [{"name": 文件名, "media_type": 类型}]。返回重复文件名集合。
+    folder_id 传 kb_id 或空串都表示根目录(payload 中省略)。"""
     if not items:
         return set()
     payload = {"params": items, "knowledge_base_id": kb_id}
-    if folder_id:
+    if folder_id and folder_id != kb_id:
         payload["folder_id"] = folder_id
     data = http_post_json(OPENAPI_PATH + "/check_repeated_names", payload, client_id, api_key)
     repeated = set()
@@ -244,8 +245,67 @@ def check_repeated(items, kb_id, folder_id, client_id, api_key):
     return repeated
 
 
-def upload_one(file_path, kb_id, folder_id, client_id, api_key):
-    """上传单个文件。返回 media_id。不支持的类型抛 ValueError。"""
+def list_subfolders(kb_id, folder_id, client_id, api_key):
+    """列出某云端目录下的子文件夹: {名字: folder_id}。folder_id 传 kb_id 表示根目录。"""
+    data = http_post_json(
+        OPENAPI_PATH + "/get_knowledge_list",
+        {"cursor": "", "limit": 50, "knowledge_base_id": kb_id,
+         **({"folder_id": folder_id} if folder_id and folder_id != kb_id else {})},
+        client_id, api_key)
+    folders = {}
+    for key in ("folder_list", "folder_info_list", "folders"):
+        for f in data.get(key) or []:
+            if f.get("name") and f.get("folder_id"):
+                folders[f["name"]] = f["folder_id"]
+    if not folders:
+        # 兜底: 知识条目里 media_type=99 / media_id 前缀 folder_ 的是文件夹
+        for item in data.get("knowledge_list") or []:
+            mid = item.get("media_id") or ""
+            if item.get("title") and (item.get("media_type") == 99 or mid.startswith("folder_")):
+                folders[item["title"]] = mid
+    return folders
+
+
+def create_folder(kb_id, parent_folder_id, name, client_id, api_key):
+    """在 parent 下创建子文件夹, 返回 folder_id。"""
+    data = http_post_json(
+        OPENAPI_PATH + "/create_folder",
+        {"knowledge_base_id": kb_id, "parent_folder_id": parent_folder_id, "name": name},
+        client_id, api_key)
+    return data.get("media_id") or ""
+
+
+def ensure_folder_path(kb_id, base_folder_id, rel_dir_parts, client_id, api_key, cache):
+    """
+    确保云端目录层级存在, 返回最终 folder_id。
+    rel_dir_parts: 本地相对子目录逐级名称列表, 如 ['2023', '01']；空列表返回 base_folder_id。
+    cache: dict, 进程内缓存 {('parent_id','名字'): folder_id}, 避免同一任务重复请求。
+
+    注意: 根目录必须用 kb_id 标识, 但 add_knowledge 时根目录要省略 folder_id
+    (传 kb_id 会被服务端当作不存在文件夹)。故 base_folder_id 为空时返回 kb_id,
+    由 upload_one/check_repeated 在 payload 里对根目录特殊处理。
+    """
+    current = base_folder_id or kb_id
+    for name in rel_dir_parts:
+        key = (current, name)
+        if key in cache:
+            current = cache[key]
+            continue
+        existing = list_subfolders(kb_id, current, client_id, api_key)
+        fid = existing.get(name)
+        if not fid:
+            fid = create_folder(kb_id, current, name, client_id, api_key)
+            log("创建云端文件夹: %s (在 %s 下)" % (name, current))
+        cache[key] = fid
+        current = fid
+    return current
+
+
+def upload_one(file_path, kb_id, folder_id, client_id, api_key, title_prefix=""):
+    """上传单个文件。返回 media_id。不支持的类型抛 ValueError。
+
+    title_prefix: 云端标题前缀(如 '2023/01'), 体现来源子目录层级, 留空表示根目录文件。
+    """
     file_name = os.path.basename(file_path)
     info = detect_file_type(file_path)
     if info is None:
@@ -256,11 +316,16 @@ def upload_one(file_path, kb_id, folder_id, client_id, api_key):
         raise ValueError("文件超过大小上限(%dMB): %s" % (max_size // 1024 // 1024, file_name))
 
     ext = os.path.splitext(file_name)[1].lower().lstrip(".")
+    base_title = os.path.splitext(file_name)[0]
+    title = (title_prefix.rstrip("/") + "/" + base_title) if title_prefix else base_title
+    # 云端显示名由 file_name 决定(add_knowledge 的 title 会被服务端忽略),
+    # create_media/file_info 的 file_name 带相对路径才会在云端显示层级
+    display_name = (title_prefix.rstrip("/") + "/" + file_name) if title_prefix else file_name
 
     data = http_post_json(
         OPENAPI_PATH + "/create_media",
         {
-            "file_name": file_name,
+            "file_name": display_name,
             "file_size": size,
             "content_type": content_type,
             "knowledge_base_id": kb_id,
@@ -277,16 +342,17 @@ def upload_one(file_path, kb_id, folder_id, client_id, api_key):
     payload = {
         "media_type": media_type,
         "media_id": media_id,
-        "title": os.path.splitext(file_name)[0],
+        "title": title,
         "knowledge_base_id": kb_id,
         "file_info": {
             "cos_key": cred["cos_key"],
             "file_size": size,
             "last_modify_time": int(os.path.getmtime(file_path)),
-            "file_name": file_name,
+            "file_name": display_name,
         },
     }
-    if folder_id:
+    if folder_id and folder_id != kb_id:
+        # 根目录(folder_id 缺省或等于 kb_id)必须省略, 否则服务端报"文件夹不存在"
         payload["folder_id"] = folder_id
     http_post_json(OPENAPI_PATH + "/add_knowledge", payload, client_id, api_key)
     return media_id
