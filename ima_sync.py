@@ -267,51 +267,52 @@ def list_subfolders(kb_id, folder_id, client_id, api_key):
 
 
 def create_folder(kb_id, parent_folder_id, name, client_id, api_key):
-    """创建文件夹, 返回 folder_id。
+    """在 parent 下创建子文件夹, 返回 folder_id。
 
-    实测限制(2026-10): 服务端忽略 parent_folder_id, 总是建到知识库根目录;
-    且同名查重是知识库全局级(与位置无关)。因此只能创建"第一层"文件夹。
+    参数名实测是 folder_id(父目录 ID, 根目录传 kb_id):
+      create_folder(kb, folder_id=<父目录>, name=...) -> 在该父目录下创建
+    不带 folder_id 时建到知识库根目录。同名查重是知识库全局级。
     """
-    data = http_post_json(
-        OPENAPI_PATH + "/create_folder",
-        {"knowledge_base_id": kb_id, "parent_folder_id": parent_folder_id, "name": name},
-        client_id, api_key)
+    payload = {"knowledge_base_id": kb_id, "name": name}
+    if parent_folder_id and parent_folder_id != kb_id:
+        payload["folder_id"] = parent_folder_id
+    data = http_post_json(OPENAPI_PATH + "/create_folder", payload, client_id, api_key)
     return data.get("media_id") or ""
 
 
-def ensure_folder(kb_id, base_folder_id, first_dir, client_id, api_key, cache):
-    """确保知识库根目录下存在名为 first_dir 的一级文件夹, 返回其 folder_id。
-
-    第一层目录是 OpenAPI 能真实归档的最大深度(create_folder 只能建到根,
-    但 add_knowledge 的 folder_id 引用它完全有效)。更深的层级由调用方
-    用显示名路径前缀体现。
-    cache: {('root', first_dir): folder_id}
-    """
-    key = ("root", first_dir)
-    if key in cache:
-        return cache[key]
-    existing = list_subfolders(kb_id, base_folder_id or kb_id, client_id, api_key)
-    fid = existing.get(first_dir)
-    if not fid:
-        try:
-            fid = create_folder(kb_id, base_folder_id or kb_id, first_dir, client_id, api_key)
-            log("创建云端文件夹: %s" % first_dir)
-        except RuntimeError as e:
-            if "已存在同名" in str(e):
-                # 全局同名查重撞上别的位置的同名文件夹, 重新列一次取其 id
-                existing = list_subfolders(kb_id, base_folder_id or kb_id, client_id, api_key)
-                fid = existing.get(first_dir) or ""
-            if not fid:
-                raise
-    cache[key] = fid
-    return fid
-
-
 def ensure_folder_path(kb_id, base_folder_id, rel_dir_parts, client_id, api_key, cache):
-    """[已废弃的完整层级版] 保留兼容: 只处理第一层, 返回第一层 folder_id。"""
-    if not rel_dir_parts:
-        return base_folder_id or kb_id
-    return ensure_folder(kb_id, base_folder_id, rel_dir_parts[0], client_id, api_key, cache)
+    """
+    确保云端目录层级存在(逐级创建), 返回最终 folder_id。
+    rel_dir_parts: 本地相对子目录逐级名称列表, 如 ['2023', '01']；空列表返回 base_folder_id。
+    cache: {('父目录id','名字'): folder_id}, 进程内缓存避免重复请求。
+
+    注意: 根目录用 kb_id 标识, 但 add_knowledge/check_repeated 在根目录时要省略
+    folder_id(传 kb_id 会报"文件夹不存在")。base_folder_id 为空即表示根目录,
+    返回值可能是 kb_id, 调用方需按上述规则处理(ima_sync.upload_one 已处理)。
+    """
+    current = base_folder_id or kb_id
+    for name in rel_dir_parts:
+        key = (current, name)
+        if key in cache:
+            current = cache[key]
+            continue
+        existing = list_subfolders(kb_id, current, client_id, api_key)
+        fid = existing.get(name)
+        if not fid:
+            try:
+                fid = create_folder(kb_id, current, name, client_id, api_key)
+                log("创建云端文件夹: %s (父: %s)" % (name,
+                    "知识库根目录" if current == kb_id else current[:24]))
+            except RuntimeError as e:
+                if "已存在同名" in str(e):
+                    # 全局同名查重撞车(同名文件夹在别的位置): 重新列出父目录取 id
+                    existing = list_subfolders(kb_id, current, client_id, api_key)
+                    fid = existing.get(name) or ""
+                if not fid:
+                    raise
+        cache[key] = fid
+        current = fid
+    return current
 
 
 def upload_one(file_path, kb_id, folder_id, client_id, api_key, title_prefix=""):

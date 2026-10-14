@@ -514,12 +514,10 @@ class SyncManager:
             cur["message"] = "没有新增或修改的文件"
             return
 
-        # 目录映射策略(实测 ima OpenAPI 限制后的最优解):
-        #  - create_folder 只能在知识库根目录建文件夹(忽略父级参数), 全局同名查重
-        #  - add_knowledge 的 folder_id 引用已有文件夹完全有效
-        #  => 本地"第一层子目录"映射为知识库根目录下的真实文件夹(文件真归档进去);
-        #     更深层级无法建目录, 用显示名路径前缀体现(如 2023/01/xx.mp3)
-        folder_cache = {}   # ('root', 一级目录名) -> folder_id
+        # 目录映射: 本地子目录层级原样映射到云端真实文件夹。
+        # (实测: create_folder 带 folder_id 参数即在指定父目录下创建, 支持任意深度;
+        #  add_knowledge 的 folder_id 引用已有文件夹有效)
+        folder_cache = {}   # ('父目录id','名字') -> folder_id
         repeated_by_dir = {}
         if not dry:
             try:
@@ -534,17 +532,12 @@ class SyncManager:
                 for rel_dir, items in groups.items():
                     parts = [p for p in rel_dir.split("/") if p]
                     try:
-                        target_fid = ima_sync.ensure_folder(
-                            kb_id, folder_id, parts[0], client_id, api_key, folder_cache) if parts \
-                            else (folder_id or "")
+                        target_fid = ima_sync.ensure_folder_path(
+                            kb_id, folder_id, parts, client_id, api_key, folder_cache)
                     except RuntimeError as e:
                         log("「%s」目录定位失败(%s), 该目录文件按根目录处理: %s" % (
                             task["name"], rel_dir or "/", e))
                         target_fid = folder_id or ""
-                    # 更深层级并入显示名: first/second/file.ext
-                    deep = "/".join(parts[1:])
-                    for it in items:
-                        it["name"] = ("/".join([deep, it["name"]]) if deep else it["name"])
                     try:
                         repeated_by_dir[rel_dir] = ima_sync.check_repeated(
                             items, kb_id, target_fid, client_id, api_key)
@@ -560,27 +553,21 @@ class SyncManager:
             name = os.path.basename(path)
             rel_dir = os.path.dirname(rel)
             parts = [p for p in rel_dir.split("/") if p]
-            deep = "/".join(parts[1:])
-            display = ("/".join([deep, name]) if deep else name)
             if dry:
                 # 试运行只统计, 不写库(避免残留 pending 干扰统计)
                 ok += 1
                 log("「%s」[试运行] 将上传: %s" % (task["name"], rel))
-            elif display in repeated_by_dir.get(rel_dir, set()):
+            elif name in repeated_by_dir.get(rel_dir, set()):
                 upsert_file(task["id"], rel, size=size, mtime=mtime, sha256=sha,
                             status="skipped", detail="ima 中已存在同名文件")
                 skipped += 1
                 log("「%s」跳过(ima中已存在同名): %s" % (task["name"], rel))
             else:
-                # 第一层子目录 -> 真实云端文件夹; 更深层级 -> 显示名路径前缀
+                # 本地子目录层级 -> 云端真实文件夹层级
                 try:
-                    if parts:
-                        target_fid = ima_sync.ensure_folder(
-                            kb_id, folder_id, parts[0], client_id, api_key, folder_cache)
-                    else:
-                        target_fid = folder_id or ""
-                    media_id = ima_sync.upload_one(path, kb_id, target_fid, client_id, api_key,
-                                                   title_prefix=deep)
+                    target_fid = ima_sync.ensure_folder_path(
+                        kb_id, folder_id, parts, client_id, api_key, folder_cache)
+                    media_id = ima_sync.upload_one(path, kb_id, target_fid, client_id, api_key)
                     upsert_file(task["id"], rel, size=size, mtime=mtime, sha256=sha,
                                 media_id=media_id, status="synced", detail="上传成功")
                     ok += 1
